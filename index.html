@@ -4,15 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jogo da Glória – Atividade de Grupo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#fbf5e8; --ink:#2b2a33; --muted:#6a6675; --card:#ffffff; --line:#e8dec8;
   --accent:#c8553d; --accent-ink:#fff; --ok:#1d7a46; --ko:#b3261e;
   --t0:#d1432f; --t1:#2563c9; --t2:#1f8a4c;
-  --head:'Fredoka',system-ui,sans-serif; --body:'Nunito',system-ui,sans-serif;
+  --head:ui-rounded,'Segoe UI Rounded','Trebuchet MS',system-ui,sans-serif; --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -276,6 +273,7 @@ h1,h2,h3{font-family:var(--head);margin:0;font-weight:600}
       <button class="btn" type="submit" id="pgo">Entrar</button>
     </form>
     <div class="pstat" id="pstat" aria-live="polite"></div>
+    <p class="hostnote center">Só se usa o nome da equipa, durante o jogo. Nada é guardado depois de o jogo acabar nem em contas.</p>
     <div class="perr" id="perr" role="alert"></div>
   </div>
   <div id="pplay" hidden>
@@ -2714,6 +2712,27 @@ const BROKERS = params.get('brokers')
 const NS = 'gloria-pt/v1/';
 const rid = () => Math.random().toString(36).slice(2, 10);
 const baseTopic = code => NS + code;
+/* Mensagens cifradas de ponta a ponta (AES-GCM). A chave vai no fragmento (#) do link do QR code,
+   que o browser nunca envia a servidores: os servidores públicos só veem texto ilegível. */
+const b64 = u8 => btoa(String.fromCharCode(...u8)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64 = t => Uint8Array.from(atob(t.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+const CR = { key: null, ready: null, done: null };
+CR.ready = new Promise(r => { CR.done = r; });
+async function setKey(text) { CR.key = await crypto.subtle.importKey('raw', unb64(text), 'AES-GCM', false, ['encrypt', 'decrypt']); CR.done(); }
+async function enc(obj) {
+  await CR.ready;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, CR.key, new TextEncoder().encode(JSON.stringify(obj))));
+  return b64(iv) + '.' + b64(ct);
+}
+async function dec(text) {
+  try {
+    await CR.ready;
+    const [a, c] = String(text).split('.');
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(a) }, CR.key, unb64(c));
+    return JSON.parse(new TextDecoder().decode(pt));
+  } catch (e) { return null; }
+}
 function mqttOpts(extra) { return Object.assign({ clean: true, keepalive: 15, connectTimeout: 7000, reconnectPeriod: 2000, protocolVersion: 4 }, extra); }
 
 function el(name, attrs = {}, text) {
@@ -2733,7 +2752,7 @@ const rand6 = () => 1 + Math.floor(Math.random() * 6);
    ANFITRIÃO
    ===================================================================== */
 const H = {
-  links: [], code: '', ready: false, sid: '', seq: 0, tokens: [], tokenAt: 0,
+  links: [], code: '', ready: false, sid: '', seq: 0, tokens: [], tokenAt: 0, keyText: '',
   players: [],            // {cid, name, online, nonces:Set}
   phase: 'lobby',         // lobby | play | over
   pos: [], turn: 0, die: null, rolling: false, canRoll: false, msg: '',
@@ -2837,14 +2856,14 @@ function pubAll(topic, payload, opt) {
 }
 function broadcast() {
   H.seq++;
-  H.players.forEach((p, i) => pubAll(baseTopic(H.code) + '/p/' + p.cid, JSON.stringify(Object.assign(viewFor(i), { sid: H.sid, seq: H.seq })), { qos: 1, retain: true }));
+  H.players.forEach((p, i) => enc(Object.assign(viewFor(i), { sid: H.sid, seq: H.seq })).then(txt => pubAll(baseTopic(H.code) + '/p/' + p.cid, txt, { qos: 1 })));   // sem retain: nada fica guardado nos servidores
 }
 function sync() { renderHost(); broadcast(); }
 
 function saveState() {
   try {
-    if (H.phase === 'over') { localStorage.removeItem('gloria-host'); return; }
-    localStorage.setItem('gloria-host', JSON.stringify({ code: H.code, phase: H.phase, players: H.players.map(p => ({ cid: p.cid, name: p.name })), pos: H.pos, turn: H.turn, opts: H.opts }));
+    if (H.phase === 'over') { sessionStorage.removeItem('gloria-host'); return; }
+    sessionStorage.setItem('gloria-host', JSON.stringify({ key: H.keyText, code: H.code, phase: H.phase, players: H.players.map(p => ({ cid: p.cid, name: p.name })), pos: H.pos, turn: H.turn, opts: H.opts }));
   } catch (e) {}
 }
 
@@ -2865,7 +2884,7 @@ function rotateToken() {
 }
 function joinURL() {
   const u = new URL(location.href);
-  u.search = ''; u.hash = '';
+  u.search = ''; u.hash = H.keyText;
   u.searchParams.set('j', H.code);
   if (H.tokens.length) u.searchParams.set('k', H.tokens[H.tokens.length - 1]);
   const b = params.get('brokers'); if (b) u.searchParams.set('brokers', b);
@@ -3125,8 +3144,8 @@ function backToLobby() {
 }
 function rejectTo(cid, reason) {
   const t = baseTopic(H.code) + '/p/' + cid;
-  pubAll(t, '', { qos: 1, retain: true });                                   // limpa a vista antiga
-  setTimeout(() => pubAll(t, JSON.stringify({ t: 'rejected', reason }), { qos: 1 }), 150);
+  pubAll(t, '', { qos: 1, retain: true });                                   // limpa restos de versões antigas
+  enc({ t: 'rejected', reason }).then(txt => setTimeout(() => pubAll(t, txt, { qos: 1 }), 150));
 }
 function kick(i) {
   if (H.phase !== 'lobby') return;
@@ -3145,7 +3164,7 @@ function onMsg(m) {
     const name = String(m.name || '').trim().slice(0, 22) || 'Equipa';
     if (slot >= 0) {
       const p = H.players[slot]; p.online = true; p.nonces.add(m.nonce);
-      if (H.phase === 'lobby') p.name = name;
+      if (H.phase === 'lobby' && String(m.name || '').trim()) p.name = name;
     } else if (H.phase !== 'lobby') { rejectTo(cid, 'started'); return; }
     else if (!m.k || !H.tokens.includes(String(m.k))) { rejectTo(cid, 'expired'); return; }
     else if (H.players.length >= MAX_TEAMS) { rejectTo(cid, 'full'); return; }
@@ -3171,7 +3190,7 @@ function hostNet(code) {
   const base = baseTopic(code);
   H.links = BROKERS.map(b => ({ b, client: null, up: false }));
   H.links.forEach(L => {
-    const c = mqtt.connect(L.b.url, mqttOpts({ clientId: 'gh-' + code + '-' + rid(), will: { topic: base + '/status', payload: 'off', qos: 1, retain: true } }));
+    const c = mqtt.connect(L.b.url, mqttOpts({ clientId: 'gh-' + code + '-' + rid(), will: { topic: base + '/status', payload: '', qos: 1, retain: true } }));   // payload vazio + retain = apaga o estado quando o anfitrião desaparece
     L.client = c;
     c.on('connect', () => {
       L.up = true; H.ready = true;
@@ -3181,7 +3200,7 @@ function hostNet(code) {
     });
     const down = () => { L.up = false; H.ready = H.links.some(x => x.up); renderHost(); };
     c.on('close', down); c.on('offline', down); c.on('error', () => {});
-    c.on('message', (t, payload) => { try { onMsg(JSON.parse(payload.toString())); } catch (e) {} });
+    c.on('message', async (t, payload) => { const m = await dec(payload.toString()); if (m) onMsg(m); });
   });
 }
 function newCode() { return Array.from({ length: 5 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join(''); }
@@ -3196,7 +3215,7 @@ function hostMain() {
   rotateToken(); setInterval(rotateToken, TOKEN_EVERY);
   setInterval(() => { if (H.phase === 'lobby') $('qrnote').textContent = 'O QR code muda em ' + Math.max(0, Math.ceil((H.tokenAt + TOKEN_EVERY - Date.now()) / 1000)) + ' s.'; }, 1000);
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem('gloria-host') || 'null'); } catch (e) {}
+  try { saved = JSON.parse(sessionStorage.getItem('gloria-host') || 'null'); } catch (e) {}
   let code = newCode();
   if (saved && saved.code && Array.isArray(saved.players)) {
     code = saved.code;
@@ -3211,8 +3230,8 @@ function hostMain() {
       runGame();
     }
   }
-  hostNet(code);
-  renderHost();
+  H.keyText = (saved && saved.key) || b64(crypto.getRandomValues(new Uint8Array(16)));
+  setKey(H.keyText).then(() => { hostNet(code); renderHost(); });
 }
 
 /* =====================================================================
@@ -3225,10 +3244,10 @@ function pmain() {
   $('pjcode').textContent = JOIN;
   try { P.cid = localStorage.getItem('gloria-cid') || ''; } catch (e) {}
   if (!P.cid) { P.cid = rid() + rid(); try { localStorage.setItem('gloria-cid', P.cid); } catch (e) {} }
-  let last = ''; try { last = localStorage.getItem('gloria-name') || ''; } catch (e) {}
-  let joined = ''; try { joined = localStorage.getItem('gloria-joined') || ''; } catch (e) {}
+  let last = ''; try { last = sessionStorage.getItem('gloria-name') || ''; } catch (e) {}
+  let joined = ''; try { joined = sessionStorage.getItem('gloria-joined') || ''; } catch (e) {}
   $('pname').value = last;
-  $('pform').onsubmit = ev => { ev.preventDefault(); P.name = $('pname').value.trim(); if (!P.name) return; try { localStorage.setItem('gloria-name', P.name); } catch (e) {} $('pgo').disabled = true; pstart(); };
+  $('pform').onsubmit = ev => { ev.preventDefault(); P.name = $('pname').value.trim(); if (!P.name) return; try { sessionStorage.setItem('gloria-name', P.name); } catch (e) {} $('pgo').disabled = true; pstart(); };
   if (joined === JOIN && last) { P.name = last; $('pgo').disabled = true; pstart(); }   // reentrada automática (ex.: atualizou a página)
 }
 function setPStat(t) { $('pstat').textContent = t; }
@@ -3242,18 +3261,22 @@ function pRefresh() {
     else setPStat(Date.now() - P.started > 9000 ? `Não encontramos a sala ${JOIN}. Confirmem o código e se o ecrã principal está aberto. A tentar de novo…` : 'A procurar a sala…');
   }
 }
-function pstart() {
+async function pstart() {
+  const kt = location.hash.slice(1);
+  if (!kt) { $('pgo').disabled = false; $('perr').textContent = 'Link incompleto. Leiam outra vez o QR code do ecrã principal.'; return; }
+  try { await setKey(kt); } catch (e) { $('pgo').disabled = false; $('perr').textContent = 'Link inválido. Leiam outra vez o QR code do ecrã principal.'; return; }
   P.stop = false; P.started = Date.now();
   P.links.forEach(L => { try { L.client.removeAllListeners(); L.client.on('error', () => {}); L.client.end(true); } catch (e) {} });
   const base = baseTopic(JOIN);
   P.links = BROKERS.map(B => ({ B, client: null, up: false, hostOn: false, nonce: rid() }));
-  P.links.forEach(L => {
-    const c = mqtt.connect(L.B.url, mqttOpts({ clientId: 'gp-' + rid() + rid(), will: { topic: base + '/h', payload: JSON.stringify({ t: 'bye', cid: P.cid, nonce: L.nonce }), qos: 1 } }));
+  for (const L of P.links) {
+    const bye = await enc({ t: 'bye', cid: P.cid, nonce: L.nonce });
+    const c = mqtt.connect(L.B.url, mqttOpts({ clientId: 'gp-' + rid() + rid(), will: { topic: base + '/h', payload: bye, qos: 1 } }));
     L.client = c;
     c.on('connect', () => { L.up = true; c.subscribe([base + '/status', base + '/p/' + P.cid], { qos: 1 }); pRefresh(); });
     const down = () => { L.up = false; L.hostOn = false; pRefresh(); };
     c.on('close', down); c.on('offline', down); c.on('error', () => {});
-    c.on('message', (t, buf) => {
+    c.on('message', async (t, buf) => {
       const txt = buf.toString();
       if (t === base + '/status') {
         if (txt.startsWith('on:')) {
@@ -3264,15 +3287,15 @@ function pstart() {
         return;
       }
       if (!txt) return;
-      try { onHostData(JSON.parse(txt)); } catch (e) {}
+      const m = await dec(txt); if (m) onHostData(m);
     });
-  });
+  }
   clearInterval(P.statT); P.statT = setInterval(pRefresh, 1500);
   pRefresh();
 }
 function plink(L, o) {
   if (!L.client || !L.client.connected) return;
-  try { L.client.publish(baseTopic(JOIN) + '/h', JSON.stringify(Object.assign({ cid: P.cid, nonce: L.nonce }, o)), { qos: 1 }); } catch (e) {}
+  enc(Object.assign({ cid: P.cid, nonce: L.nonce }, o)).then(txt => { try { L.client.publish(baseTopic(JOIN) + '/h', txt, { qos: 1 }); } catch (e) {} });
 }
 function psend(o) {   // envia pelo primeiro servidor onde a sala está presente
   const L = P.links.find(x => x.up && x.hostOn) || P.links.find(x => x.up);
@@ -3281,7 +3304,7 @@ function psend(o) {   // envia pelo primeiro servidor onde a sala está presente
 function onHostData(m) {
   if (!m) return;
   if (m.t === 'rejected') {
-    P.stop = true; clearInterval(P.statT); try { localStorage.removeItem('gloria-joined'); } catch (e) {}
+    P.stop = true; clearInterval(P.statT); try { sessionStorage.removeItem('gloria-joined'); } catch (e) {}
     P.links.forEach(L => { try { L.client.end(true); } catch (e) {} });
     const txt = { started: 'O jogo já começou. Pede ao anfitrião para recomeçar para poderes entrar.', full: 'A sala já tem 3 equipas.', expired: 'O QR code expirou. Leiam outra vez o QR code que está no ecrã principal.', kicked: 'Foste removido da sala.' }[m.reason] || 'Não foi possível entrar.';
     $('plost').hidden = true; $('pplay').hidden = true; $('pjoin').hidden = false; $('pgo').disabled = false; setPStat(''); $('perr').textContent = txt; return;
@@ -3290,7 +3313,8 @@ function onHostData(m) {
   if (m.sid !== P.sid) return;                                  // vista de uma sessão antiga do anfitrião
   if (P.last && m.seq <= P.last.seq) return;                    // repetida (chega por vários servidores) ou antiga
   P.last = { seq: m.seq };
-  try { localStorage.setItem('gloria-joined', JOIN); } catch (e) {}
+  try { sessionStorage.setItem('gloria-joined', JOIN); } catch (e) {}
+  if (m.phase === 'over') { try { localStorage.removeItem('gloria-cid'); sessionStorage.clear(); } catch (e) {} }   // fim do jogo: apagar tudo o que ficou neste telemóvel
   P.view = m; P.recv = Date.now(); pRefresh();
   prender();
 }
