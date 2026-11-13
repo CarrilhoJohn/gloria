@@ -172,8 +172,10 @@ h1,h2,h3{font-family:var(--head);margin:0;font-weight:600}
       <div>
         <div class="panel qr-box">
           <div id="qr" aria-label="QR code para entrar no jogo"></div>
-          <div class="joinurl" id="joinurl"></div>
-          <div class="code" id="roomcode">····</div>
+          <div class="hostnote" id="qrnote">O QR code muda a cada 20 segundos.</div>
+          <div class="joinurl" id="joinurl" hidden></div>
+          <div class="code" id="roomcode" hidden>····</div>
+          <button class="btn ghost" id="showlink" type="button" style="margin-top:10px;font-size:.85rem;padding:5px 12px">Mostrar link e código</button>
           <div class="conn" id="conn">A ligar aos servidores…</div>
           <div class="hostnote">Problemas a entrar? Abram <b id="testurl"></b> no telemóvel.</div>
         </div>
@@ -2693,6 +2695,7 @@ const $ = id => document.getElementById(id);
 const FAST = !!window.__FAST;
 const params = new URLSearchParams(location.search);
 const JOIN = (params.get('j') || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const KEY = params.get('k') || '';
 const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 const sleep = ms => (FAST ? Promise.resolve() : new Promise(r => setTimeout(r, reduce ? ms * 0.3 : ms)));
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -2730,7 +2733,7 @@ const rand6 = () => 1 + Math.floor(Math.random() * 6);
    ANFITRIÃO
    ===================================================================== */
 const H = {
-  links: [], code: '', ready: false, sid: '', seq: 0,
+  links: [], code: '', ready: false, sid: '', seq: 0, tokens: [], tokenAt: 0,
   players: [],            // {cid, name, online, nonces:Set}
   phase: 'lobby',         // lobby | play | over
   pos: [], turn: 0, die: null, rolling: false, canRoll: false, msg: '',
@@ -2854,18 +2857,26 @@ function renderQR(url) {
     $('qr').innerHTML = `<svg viewBox="0 0 ${n + m * 2} ${n + m * 2}" shape-rendering="crispEdges" role="img" aria-label="QR code"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#111"/></svg>`;
   } catch (e) { $('qr').textContent = ''; }
 }
+const TOKEN_EVERY = 20000, TOKEN_KEEP = 4;   // novo QR a cada 20 s; cada um vale ~80 s
+function rotateToken() {
+  H.tokens.push(rid() + rid()); while (H.tokens.length > TOKEN_KEEP) H.tokens.shift();
+  H.tokenAt = Date.now();
+  if (H.phase === 'lobby') renderLobby();
+}
 function joinURL() {
   const u = new URL(location.href);
   u.search = ''; u.hash = '';
   u.searchParams.set('j', H.code);
+  if (H.tokens.length) u.searchParams.set('k', H.tokens[H.tokens.length - 1]);
   const b = params.get('brokers'); if (b) u.searchParams.set('brokers', b);
   return u.toString();
 }
 function renderLobby() {
   $('roomcode').textContent = H.code || '····';
-  const ok = H.ready;
+  const ok = H.ready && H.tokens.length > 0;
   $('conn').textContent = ok ? '● Sala aberta · ' + H.links.map(L => L.b.name + (L.up ? ' ✓' : ' ✗')).join(' · ') : 'A ligar aos servidores…';
   if (ok) { const url = joinURL(); renderQR(url); $('joinurl').textContent = url.replace(/^https?:\/\//, ''); $('joinurl').dataset.url = url; $('testurl').textContent = url.replace(/^https?:\/\//, '').replace(/\?.*$/, '') + '?teste'; }
+  if (!H.ready) $('qr').innerHTML = '';
   const slots = $('slots'); slots.innerHTML = '';
   for (let i = 0; i < MAX_TEAMS; i++) {
     const p = H.players[i], d = document.createElement('div');
@@ -3136,6 +3147,7 @@ function onMsg(m) {
       const p = H.players[slot]; p.online = true; p.nonces.add(m.nonce);
       if (H.phase === 'lobby') p.name = name;
     } else if (H.phase !== 'lobby') { rejectTo(cid, 'started'); return; }
+    else if (!m.k || !H.tokens.includes(String(m.k))) { rejectTo(cid, 'expired'); return; }
     else if (H.players.length >= MAX_TEAMS) { rejectTo(cid, 'full'); return; }
     else H.players.push({ cid, name, online: true, nonces: new Set([m.nonce]) });
     saveState(); sync();
@@ -3180,6 +3192,9 @@ function hostMain() {
   $('qnext').onclick = () => { const s = H.skip; s && s(); };
   $('restartBtn').onclick = () => { if (confirm('Começar um novo jogo? Perde-se o progresso atual (as equipas ficam na sala).')) backToLobby(); };
   $('againBtn').onclick = backToLobby;
+  $('showlink').onclick = () => { const h = $('joinurl').hidden; $('joinurl').hidden = !h; $('roomcode').hidden = !h; $('showlink').textContent = h ? 'Esconder link e código' : 'Mostrar link e código'; };
+  rotateToken(); setInterval(rotateToken, TOKEN_EVERY);
+  setInterval(() => { if (H.phase === 'lobby') $('qrnote').textContent = 'O QR code muda em ' + Math.max(0, Math.ceil((H.tokenAt + TOKEN_EVERY - Date.now()) / 1000)) + ' s.'; }, 1000);
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('gloria-host') || 'null'); } catch (e) {}
   let code = newCode();
@@ -3244,7 +3259,7 @@ function pstart() {
         if (txt.startsWith('on:')) {
           const sid = txt.slice(3);
           if (sid !== P.sid) { P.sid = sid; P.last = null; }
-          L.hostOn = true; plink(L, { t: 'hello', name: P.name }); pRefresh();
+          L.hostOn = true; plink(L, { t: 'hello', name: P.name, k: KEY }); pRefresh();
         } else { L.hostOn = false; pRefresh(); }
         return;
       }
@@ -3268,7 +3283,7 @@ function onHostData(m) {
   if (m.t === 'rejected') {
     P.stop = true; clearInterval(P.statT); try { localStorage.removeItem('gloria-joined'); } catch (e) {}
     P.links.forEach(L => { try { L.client.end(true); } catch (e) {} });
-    const txt = { started: 'O jogo já começou. Pede ao anfitrião para recomeçar para poderes entrar.', full: 'A sala já tem 3 equipas.', kicked: 'Foste removido da sala.' }[m.reason] || 'Não foi possível entrar.';
+    const txt = { started: 'O jogo já começou. Pede ao anfitrião para recomeçar para poderes entrar.', full: 'A sala já tem 3 equipas.', expired: 'O QR code expirou. Leiam outra vez o QR code que está no ecrã principal.', kicked: 'Foste removido da sala.' }[m.reason] || 'Não foi possível entrar.';
     $('plost').hidden = true; $('pplay').hidden = true; $('pjoin').hidden = false; $('pgo').disabled = false; setPStat(''); $('perr').textContent = txt; return;
   }
   if (m.t !== 'view') return;
