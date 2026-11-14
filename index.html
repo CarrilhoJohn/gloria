@@ -207,8 +207,8 @@ h1,h2,h3{font-family:var(--head);margin:0;font-weight:600}
           <ol class="rules">
             <li>Em cada ronda, <b>todas as equipas respondem à mesma pergunta</b> no telemóvel.</li>
             <li><b>Quem acerta avança uma casa.</b> Quem falha, ou não responde a tempo, fica onde está.</li>
-            <li>O tabuleiro tem 20 casas: ganha a primeira equipa a chegar à meta.</li>
-            <li>Se duas equipas chegarem à meta na mesma ronda, ganha a que respondeu mais depressa.</li>
+            <li>O jogo tem 15 perguntas e o tabuleiro 15 casas. Ganha quem chegar primeiro à meta ou, no fim das perguntas, quem estiver mais avançado.</li>
+            <li>Em caso de empate, ganha a equipa com respostas certas mais rápidas.</li>
           </ol>
         </div>
         <div class="center"><button class="btn" id="startBtn" disabled>Começar o jogo</button>
@@ -223,7 +223,7 @@ h1,h2,h3{font-family:var(--head);margin:0;font-weight:600}
       <button class="btn ghost" id="restartBtn">Novo jogo</button>
     </div>
     <div class="layout">
-      <div class="board-wrap"><svg id="board" viewBox="0 0 500 460" role="img" aria-label="Tabuleiro com 20 casas"></svg></div>
+      <div class="board-wrap"><svg id="board" viewBox="0 0 500 360" role="img" aria-label="Tabuleiro com 15 casas"></svg></div>
       <aside class="side">
         <div id="teams" style="display:contents"></div>
         <div class="dice-box">
@@ -2617,79 +2617,30 @@ var qrcode = function() {
    Cada pergunta: [enunciado, resposta certa, errada1, errada2, errada3]
    As opções aparecem misturadas em cada pergunta.
    ===================================================================== */
-const CATS = [
-  { id:'geo',  name:'Geografia', icon:'🌍', color:'#d3ecdd' },
-  { id:'hist', name:'História',  icon:'🏛️', color:'#f2e2c4' },
-  { id:'sci',  name:'Ciência',   icon:'🔬', color:'#d5e3f7' },
-  { id:'desp', name:'Desporto',  icon:'⚽', color:'#fbdccf' },
-  { id:'cult', name:'Cultura',   icon:'🎭', color:'#e8d6f2' },
-  { id:'pt',   name:'Portugal',  icon:'🏰', color:'#f7ecb3' }
-];
-
-const QUESTIONS = {
-  geo: [
-    ['Qual é a capital da Austrália?', 'Camberra', 'Sydney', 'Melbourne', 'Perth'],
-    ['Qual é o maior oceano do mundo?', 'Pacífico', 'Atlântico', 'Índico', 'Ártico'],
-    ['Qual é o rio mais extenso da Europa?', 'Volga', 'Danúbio', 'Reno', 'Tejo'],
-    ['Em que continente fica o Egito?', 'África', 'Ásia', 'Europa', 'Oceânia'],
-    ['Qual é o país mais populoso do mundo atualmente?', 'Índia', 'China', 'Estados Unidos', 'Indonésia'],
-    ['Qual é a montanha mais alta do mundo?', 'Evereste', 'K2', 'Mont Blanc', 'Kilimanjaro'],
-    ['Qual é a capital do Canadá?', 'Otava', 'Toronto', 'Vancouver', 'Montreal'],
-    ['Qual é o maior deserto quente do mundo?', 'Sara', 'Gobi', 'Kalahari', 'Arábico']
-  ],
-  hist: [
-    ['Em que ano ocorreu a Revolução dos Cravos?', '1974', '1968', '1979', '1986'],
-    ['Quem chegou à Índia por mar em 1498?', 'Vasco da Gama', 'Pedro Álvares Cabral', 'Bartolomeu Dias', 'Fernão de Magalhães'],
-    ['Em que ano caiu o Muro de Berlim?', '1989', '1979', '1985', '1991'],
-    ['Que civilização construiu as pirâmides de Gizé?', 'Egípcia', 'Maia', 'Romana', 'Grega'],
-    ['Quem foi o primeiro rei de Portugal?', 'D. Afonso Henriques', 'D. Dinis', 'D. João I', 'D. Sancho I'],
-    ['Em que ano o ser humano pisou a Lua pela primeira vez?', '1969', '1961', '1965', '1972'],
-    ['Em que ano ocorreu o grande terramoto de Lisboa?', '1755', '1640', '1807', '1910'],
-    ['Em que ano foi implantada a República em Portugal?', '1910', '1890', '1926', '1974']
-  ],
-  sci: [
-    ['Qual é o planeta mais próximo do Sol?', 'Mercúrio', 'Vénus', 'Marte', 'Terra'],
-    ['Qual é a fórmula química da água?', 'H₂O', 'CO₂', 'O₂', 'NaCl'],
-    ['Quantos ossos tem o corpo de um adulto?', '206', '156', '256', '306'],
-    ['Qual é o gás mais abundante na atmosfera da Terra?', 'Azoto', 'Oxigénio', 'Dióxido de carbono', 'Árgon'],
-    ['Qual é o maior órgão do corpo humano?', 'Pele', 'Fígado', 'Coração', 'Intestino'],
-    ['Que planeta é conhecido como o “planeta vermelho”?', 'Marte', 'Júpiter', 'Vénus', 'Saturno'],
-    ['Quantos planetas tem o Sistema Solar?', '8', '7', '9', '10'],
-    ['Qual é a velocidade aproximada da luz no vácuo?', '300 000 km/s', '30 000 km/s', '150 000 km/s', '3 000 000 km/s']
-  ],
-  desp: [
-    ['Quantos jogadores tem cada equipa de futebol em campo?', '11', '9', '10', '12'],
-    ['Em que país se realizaram os Jogos Olímpicos de 2024?', 'França', 'Japão', 'Estados Unidos', 'Reino Unido'],
-    ['Que seleção venceu o Mundial de futebol de 2022?', 'Argentina', 'França', 'Brasil', 'Croácia'],
-    ['Em que modalidade se disputa o Tour de France?', 'Ciclismo', 'Atletismo', 'Automobilismo', 'Natação'],
-    ['Qual é a distância oficial de uma maratona?', '42,195 km', '40 km', '21,097 km', '50 km'],
-    ['Quem é o melhor marcador de sempre da seleção portuguesa?', 'Cristiano Ronaldo', 'Eusébio', 'Pauleta', 'Nuno Gomes'],
-    ['Em que ano Portugal venceu o Campeonato da Europa de futebol?', '2016', '2004', '2012', '2020'],
-    ['Quantos anéis tem o símbolo olímpico?', '5', '4', '6', '7']
-  ],
-  cult: [
-    ['Quem pintou a Mona Lisa?', 'Leonardo da Vinci', 'Miguel Ângelo', 'Rafael', 'Van Gogh'],
-    ['Quem escreveu “Os Lusíadas”?', 'Luís de Camões', 'Fernando Pessoa', 'Eça de Queirós', 'Gil Vicente'],
-    ['Que escritor português ganhou o Nobel da Literatura em 1998?', 'José Saramago', 'Miguel Torga', 'Vergílio Ferreira', 'Eça de Queirós'],
-    ['Quantas cordas tem uma guitarra clássica?', '6', '4', '5', '7'],
-    ['Quem compôs a Nona Sinfonia?', 'Beethoven', 'Mozart', 'Bach', 'Vivaldi'],
-    ['Que cor se obtém misturando azul e amarelo?', 'Verde', 'Laranja', 'Roxo', 'Castanho'],
-    ['Em que cidade fica o museu do Louvre?', 'Paris', 'Londres', 'Roma', 'Madrid'],
-    ['Quem escreveu “O Principezinho”?', 'Antoine de Saint-Exupéry', 'Victor Hugo', 'Júlio Verne', 'Albert Camus']
-  ],
-  pt: [
-    ['Qual é o ponto mais alto de Portugal continental?', 'Serra da Estrela', 'Serra do Gerês', 'Serra de Montejunto', 'Serra de Sintra'],
-    ['Qual é a capital da ilha da Madeira?', 'Funchal', 'Ponta Delgada', 'Angra do Heroísmo', 'Horta'],
-    ['Quantos distritos tem Portugal continental?', '18', '16', '20', '22'],
-    ['Que doce é famoso em Belém, Lisboa?', 'Pastel de nata', 'Ovos moles', 'Travesseiro', 'Bola de Berlim'],
-    ['Que ponte liga Lisboa a Almada?', 'Ponte 25 de Abril', 'Ponte Vasco da Gama', 'Ponte da Arrábida', 'Ponte D. Luís'],
-    ['Em que cidade fica a Torre dos Clérigos?', 'Porto', 'Lisboa', 'Braga', 'Coimbra'],
-    ['Em que ano Portugal aderiu à então CEE (hoje UE)?', '1986', '1974', '1992', '2002'],
-    ['Qual é o cabo mais ocidental da Europa continental?', 'Cabo da Roca', 'Cabo de São Vicente', 'Cabo Espichel', 'Cabo Carvoeiro']
-  ]
+const CATS = {
+  f: { name:'Farmácia', icon:'💊', color:'#d3ecdd' },
+  g: { name:'Cultura Geral', icon:'🌍', color:'#d5e3f7' }
 };
+const QUESTIONS = [
+  ["f", "Atualmente, quantas farmácias tem a nossa organização?", "16", "14", "15", "17"],
+  ["f", "Qual o valor de faturação mensal mais elevado da nossa farmácia até agora?", "113k", "120k", "93k", "90k"],
+  ["f", "Qual a proporção Rx / OTC / PSBE’s?", "73% / 11% / 16%", "53% / 20% / 27%", "53% / 27% / 20%", "73% / 16% / 11%"],
+  ["f", "Há quantos anos trabalha na farmácia o colaborador mais antigo?", "8 anos", "10 anos", "20 anos", "5 anos"],
+  ["g", "Onde fica o maior deserto do Mundo?", "Antártida", "Ártico", "Saara", "Patagónia"],
+  ["f", "Qual o nosso objetivo de faturação para Novembro?", "110k", "115k", "100k", "120k"],
+  ["f", "Qual a sub-categoria de PSBE que mais vende (em valor)?", "Dispositivos e acessórios", "Cosmética", "Suplementos", "Veterinária"],
+  ["f", "Qual a 2ª sub-categoria de PSBE que mais vende (em valor)?", "Cosmética", "Suplementos", "Dispositivos e acessórios", "Veterinária"],
+  ["g", "Em que ano terminou a Segunda Guerra Mundial?", "1945", "1943", "1944", "1946"],
+  ["f", "Quantas vacinas gripe + COVID foram administradas até agora?", "258", "524", "93", "0"],
+  ["f", "Qual o contributo do Mounjaro para a nossa faturação de Outubro?", "8k", "15k", "2k", "20k"],
+  ["f", "Qual foi o único mês em que crescemos negativamente em faturação?", "Maio", "Abril", "Junho", "Julho"],
+  ["f", "A dietética vende mais que a puericultura.", "Falso", "Verdadeiro"],
+  ["g", "Qual é o maior mamífero do Mundo?", "Baleia-azul", "Elefante africano", "Girafa", "Tubarão-branco"],
+  ["g", "Qual é a capital da Austrália?", "Camberra", "Sydney", "Melbourne", "Perth"],
+];   // [categoria, enunciado, certa, erradas…] – por ordem
+const TOTALQ = QUESTIONS.length;
 
-const LAST = 20, COLS = 5, ROWS = 4, MAX_TEAMS = 3;   // 20 casas
+const LAST = 15, COLS = 5, ROWS = 3, MAX_TEAMS = 3;   // 20 casas
 const TEAM_COLORS = ['#d1432f', '#2563c9', '#1f8a4c'];
 
 /* ===================================================================== */
@@ -2755,7 +2706,7 @@ const H = {
   players: [],            // {cid, name, online, nonces:Set}
   phase: 'lobby',         // lobby | play | over
   pos: [], round: 0, msg: '', q: null, secret: null, winner: null, tie: false,
-  opts: { secs: 20 }, gen: 0, deck: [], answerResolve: null, qTimer: null, skip: null, qTick: null
+  opts: { secs: 20 }, tt: [0, 0, 0], reachedEnd: false, gen: 0, deck: [], answerResolve: null, qTimer: null, skip: null, qTick: null
 };
 
 /* ---------- tabuleiro ---------- */
@@ -2765,14 +2716,14 @@ function cellXY(n) {
   return { x: col * 100 + 50, y: (ROWS - 1 - row) * 100 + 50 };
 }
 function tokenXY(team, n) {
-  if (n === 0) return { x: 100 + team * 56, y: 432 };
+  if (n === 0) return { x: 100 + team * 56, y: ROWS * 100 + 32 };
   const c = cellXY(n);
   return { x: c.x + (team - 1) * 28, y: c.y + 29 };
 }
 function buildBoard() {
   const svg = $('board'); svg.innerHTML = '';
   const lf = 'ui-rounded, "Segoe UI", system-ui, sans-serif';
-  svg.appendChild(el('rect', { x: 0, y: 0, width: 500, height: 460, rx: 14, fill: '#fffaf0' }));
+  svg.appendChild(el('rect', { x: 0, y: 0, width: 500, height: ROWS * 100 + 60, rx: 14, fill: '#fffaf0' }));
   for (let n = 1; n <= LAST; n++) {
     const { x, y } = cellXY(n);
     svg.appendChild(el('rect', { x: x - 48, y: y - 48, width: 96, height: 96, rx: 12, fill: n === LAST ? '#fbe7a1' : (n % 2 ? '#e6efe2' : '#f6eedb'), stroke: '#fff', 'stroke-width': 2 }));
@@ -2786,7 +2737,7 @@ function buildBoard() {
     if (n === LAST) svg.appendChild(el('text', { x, y: y + 4, 'font-size': 40, 'text-anchor': 'middle' }, '🏆'));
     if (n === LAST) svg.appendChild(el('text', { x, y: y - 22, 'font-size': 14, 'font-weight': 800, 'text-anchor': 'middle', fill: '#8a6d12', 'font-family': lf }, 'META'));
   }
-  svg.appendChild(el('text', { x: 14, y: 418, 'font-size': 15, 'font-weight': 800, fill: '#6a6675', 'font-family': lf }, 'PARTIDA'));
+  svg.appendChild(el('text', { x: 14, y: ROWS * 100 + 18, 'font-size': 15, 'font-weight': 800, fill: '#6a6675', 'font-family': lf }, 'PARTIDA'));
   H.players.forEach((_, i) => {
     const g = el('g', { class: 'token', id: 'tok' + i });
     g.appendChild(el('circle', { r: 14, fill: TEAM_COLORS[i], stroke: '#fff', 'stroke-width': 3 }));
@@ -2806,7 +2757,7 @@ function publicQ(slot) {
 }
 function viewFor(slot) {
   return { t: 'view', you: slot, code: H.code, phase: H.phase, teams: H.players.map(p => ({ name: p.name, online: p.online })),
-    pos: H.pos, round: H.round, msg: H.msg, q: publicQ(slot), winner: H.winner, tie: H.tie, last: LAST };
+    pos: H.pos, round: H.round, msg: H.msg, q: publicQ(slot), winner: H.winner, tie: H.tie, end: H.reachedEnd, last: LAST };
 }
 function pubAll(topic, payload, opt) {
   H.links.forEach(L => { if (L.up) { try { L.client.publish(topic, payload, opt); } catch (e) {} } });
@@ -2900,7 +2851,7 @@ function renderHostQuestion() {
   if (!q) { ov.hidden = true; clearInterval(H.qTick); H.qTick = null; return; }
   ov.hidden = false;
   $('qcard').style.borderTopColor = q.cat.color;
-  $('qn').textContent = `Pergunta ${q.n}`;
+  $("qn").textContent = `Pergunta ${q.n} de ${TOTALQ}`;
   $('qcat').textContent = `${q.cat.icon} ${q.cat.name}`;
   $('qtext').textContent = q.text;
   const asking = q.status === 'asking';
@@ -2957,22 +2908,21 @@ function renderHost() {
   $('lobby').hidden = !inLobby; $('game').hidden = inLobby;
   if (inLobby) { renderLobby(); $('qOverlay').hidden = true; $('winOverlay').hidden = true; return; }
   renderTeams(); placeTokens();
-  $('round').textContent = H.round ? `Pergunta ${H.round}` : '';
+  $('round').textContent = H.round ? `Pergunta ${H.round} de ${TOTALQ}` : '';
   $('status').textContent = H.msg;
   renderHostQuestion();
   $('winOverlay').hidden = H.phase !== 'over';
   if (H.phase === 'over') {
     $('winTitle').textContent = `${H.players[H.winner].name} venceu!`;
-    $('winSub').textContent = H.tie ? 'Chegaram à meta na mesma ronda. Ganhou a equipa que respondeu mais depressa.' : 'Chegaram à meta da Corrida das Perguntas!';
+    $('winSub').textContent = H.reachedEnd ? (H.tie ? 'Chegaram à meta na mesma ronda. Ganhou a equipa que respondeu mais depressa.' : 'Chegaram primeiro à meta!') : (H.tie ? 'Terminaram as perguntas empatados na mesma casa. Ganhou a equipa que respondeu mais depressa.' : 'Terminaram as perguntas na casa mais avançada!');
   }
 }
 function log(msg) { const p = document.createElement('p'); p.textContent = msg; const l = $('log'); l.prepend(p); while (l.children.length > 40) l.lastChild.remove(); }
 
 /* ---------- perguntas e rondas ---------- */
 function drawQuestion() {
-  if (!H.deck.length) H.deck = shuffle(Object.entries(QUESTIONS).flatMap(([id, list]) => list.map(q => ({ id, q }))));
-  const item = H.deck.pop(), [text, right, ...wrong] = item.q, cat = CATS.find(c => c.id === item.id);
-  const options = shuffle([right, ...wrong]);
+  const [cid, text, right, ...wrong] = QUESTIONS[(H.round - 1) % TOTALQ], cat = CATS[cid];
+  const options = right === 'Falso' || right === 'Verdadeiro' ? ['Verdadeiro', 'Falso'] : shuffle([right, ...wrong]);
   return { text, options, correct: options.indexOf(right), right, cat: { name: cat.name, icon: cat.icon, color: cat.color } };
 }
 function finishAsk() {
@@ -3019,9 +2969,15 @@ async function runGame() {
       sync();
       await A(sleep(1400));
 
-      const fin = q.results.map((r, i) => ({ i, t: r.t })).filter(x => H.pos[x.i] >= LAST).sort((a, b) => a.t - b.t);
-      if (fin.length) {
-        H.phase = 'over'; H.winner = fin[0].i; H.tie = fin.length > 1; H.msg = `🏆 ${H.players[H.winner].name} venceu!`;
+      q.results.forEach((r, i) => { if (r.ok) H.tt[i] += r.t; });
+      const fin = q.results.map((r, i) => ({ i, t: H.tt[i] })).filter(x => H.pos[x.i] >= LAST).sort((a, b) => a.t - b.t);
+      let ranked = fin;
+      if (!fin.length && H.round >= TOTALQ) ranked = H.players.map((_, i) => ({ i, t: H.tt[i] })).sort((a, b) => H.pos[b.i] - H.pos[a.i] || a.t - b.t);
+      if (ranked.length) {
+        const top = ranked[0]; H.reachedEnd = fin.length > 0;
+        H.phase = 'over'; H.winner = top.i;
+        H.tie = ranked.length > 1 && H.pos[ranked[1].i] === H.pos[top.i];
+        H.msg = `🏆 ${H.players[H.winner].name} venceu!`;
         log(H.msg); saveState(); sync(); celebrate(); return;
       }
       H.msg = 'A preparar a próxima pergunta…'; sync();
@@ -3050,7 +3006,7 @@ function abortLoop() {
 function startGame() {
   if (H.players.length < 2 || H.phase !== 'lobby') return;
   H.opts = { secs: +$('timerSecs').value };
-  H.pos = H.players.map(() => 0); H.round = 0; H.q = null; H.winner = null; H.tie = false; H.deck = []; H.phase = 'play'; H.msg = '';
+  H.pos = H.players.map(() => 0); H.tt = [0, 0, 0]; H.round = 0; H.q = null; H.winner = null; H.tie = false; H.deck = []; H.phase = 'play'; H.msg = '';
   $('log').innerHTML = ''; log('O jogo começou!');
   buildBoard(); sync(); runGame();
 }
@@ -3261,7 +3217,7 @@ function prender() {
   if (v.phase === 'over') {
     const win = v.winner === me;
     const c = card(`<div class="pmsg" style="font-size:1.6rem">${win ? '🏆 Vencemos!' : '🏁 Jogo terminado'}<br><span style="font-size:1.05rem"></span></div>`);
-    c.querySelector('span').textContent = win ? (v.tie ? 'Chegámos à meta ao mesmo tempo, mas fomos os mais rápidos!' : 'Chegámos à meta primeiro!') : `${v.teams[v.winner].name} venceu.`;
+    c.querySelector('span').textContent = win ? (v.tie ? 'Empatámos na mesma casa, mas fomos os mais rápidos!' : (v.end ? 'Chegámos primeiro à meta!' : 'Ficámos na casa mais avançada!')) : `${v.teams[v.winner].name} venceu.`;
     miniList(null);
     return;
   }
@@ -3277,7 +3233,7 @@ function prender() {
   const c = card(); c.classList.add('pq');
   const info = document.createElement('div'); info.className = 'qhead';
   info.innerHTML = '<span class="chip"></span><span class="chip"></span>';
-  info.children[0].textContent = `Pergunta ${q.n}`; info.children[1].textContent = `${q.cat.icon} ${q.cat.name}`;
+  info.children[0].textContent = `Pergunta ${q.n} de ${TOTALQ}`; info.children[1].textContent = `${q.cat.icon} ${q.cat.name}`;
   c.appendChild(info);
   const h = document.createElement('h2'); h.className = 'qtext'; h.textContent = q.text; c.appendChild(h);
   const wrap = document.createElement('div'); wrap.className = 'qopts';
